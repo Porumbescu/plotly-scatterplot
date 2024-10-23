@@ -243,22 +243,17 @@ export class ScatterPlotComponent implements OnInit {
     const xPos = event.clientX - rect.left;
     const yPos = event.clientY - rect.top;
 
-    // Convert pixel coordinates to data coordinates
     const xData = this.xaxis.p2l(xPos);
     const yData = this.yaxis.p2l(yPos);
 
-    // Ensure the point stays within the positive quadrant
-    const x = Math.max(0.0001, xData); // Avoid division by zero
+    const x = Math.max(0.0001, xData);
     const y = Math.max(0.0001, yData);
 
-    // Update the dragging point data
     this.draggingPoints[this.draggingPointIndex] = { x, y };
 
-    // Update the lines and markers
     this.updateLinesToPlotBorders();
     this.updateHighlightedAreas();
 
-    // Redraw the plot
     Plotly.redraw(this.plotContainer.nativeElement);
   }, 16);
 
