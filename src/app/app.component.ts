@@ -1,13 +1,16 @@
 import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { ScatterPlotComponent } from './scatter-plot/scatter-plot.component';
 
 @Component({
   selector: 'app-root',
+  template: `
+    <h1>Plotly Scatter Plot Example</h1>
+    <app-scatter-plot></app-scatter-plot>
+  `,
+  styleUrls: ['./app.component.css'],
   standalone: true,
-  imports: [RouterOutlet],
-  templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+  imports: [ScatterPlotComponent],
 })
 export class AppComponent {
-  title = 'plotly-scatterplot';
+  title = 'plotly-scatter-plot';
 }
