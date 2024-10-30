@@ -1,4 +1,6 @@
-import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnInit, ViewChild, NgZone, ChangeDetectorRef } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { CommonModule } from '@angular/common';
 import { throttle } from 'lodash';
 
 declare var Plotly: any;
@@ -15,6 +17,7 @@ interface PlotHTMLElement extends HTMLElement {
   templateUrl: './scatter-plot.component.html',
   styleUrls: ['./scatter-plot.component.css'],
   standalone: true,
+  imports: [FormsModule, CommonModule],
 })
 export class ScatterPlotComponent implements OnInit {
   @ViewChild('plotContainer', { static: true })
@@ -29,7 +32,15 @@ export class ScatterPlotComponent implements OnInit {
   private xArc = 4;
   private yArc = 4;
 
-  constructor() {}
+  public lineAngles: number[] = [0, 0, 0, 0];
+  public arcCoordinate: number = 4;
+
+  public showTooltip: boolean = false;
+  public tooltipXInPlot: number = 0;
+  public tooltipYInPlot: number = 0;
+  public tooltipAngleValue: string = '';
+
+  constructor(private zone: NgZone, private cd: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.renderPlot();
@@ -37,15 +48,12 @@ export class ScatterPlotComponent implements OnInit {
 
   renderPlot() {
     const dataPoints = [
-      // First pair
-      { x: 2, y: 8 },
-      { x: 2.5, y: 5 },
-      // Second pair
       { x: 6, y: 2 },
       { x: 8, y: 7 },
-      // Points on axes for the arc lines
-      { x: 0, y: this.yArc }, // y-axis
-      { x: this.xArc, y: 0 }, // x-axis
+      { x: 2.5, y: 5 },
+      { x: 2, y: 8 },
+      { x: 0, y: this.yArc },
+      { x: this.xArc, y: 0 },
     ];
 
     const linesTrace = {
@@ -93,9 +101,16 @@ export class ScatterPlotComponent implements OnInit {
       hoverinfo: 'none',
     };
 
-    const data = [linesTrace, draggablePointsTrace, lineMarkersTrace, arcMarkersTrace];
+    const data = [
+      linesTrace,
+      draggablePointsTrace,
+      lineMarkersTrace,
+      arcMarkersTrace,
+    ];
 
     this.draggingPoints = dataPoints;
+
+    this.updateAnglesFromLines();
 
     const layout = {
       title: 'Draggable Lines and Arc in Positive Quadrant',
@@ -169,56 +184,28 @@ export class ScatterPlotComponent implements OnInit {
       this.xaxis = fullLayout.xaxis;
       this.yaxis = fullLayout.yaxis;
 
-
       this.updateLinesToPlotBorders();
       this.updateArc();
       this.updateHighlightedAreas();
 
       Plotly.redraw(plotElement);
 
-      plotElement.on('plotly_relayout', (eventData: any) => {
-        const xRange = eventData['xaxis.range[0]'] !== undefined ? [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']] : null;
-        const yRange = eventData['yaxis.range[0]'] !== undefined ? [eventData['yaxis.range[0]'], eventData['yaxis.range[1]']] : null;
-
-        const update: any = {};
-
-        if (xRange) {
-          if (xRange[0] < 0) {
-            const shift = -xRange[0];
-            update['xaxis.range[0]'] = 0;
-            update['xaxis.range[1]'] = xRange[1] + shift;
-          }
-        }
-
-        if (yRange) {
-          if (yRange[0] < 0) {
-            const shift = -yRange[0];
-            update['yaxis.range[0]'] = 0;
-            update['yaxis.range[1]'] = yRange[1] + shift;
-          }
-        }
-
-        if (Object.keys(update).length > 0) {
-          Plotly.relayout(plotElement, update).then(() => {
-            this.updateLinesToPlotBorders();
-            this.updateArc();
-            this.updateHighlightedAreas();
-            Plotly.redraw(plotElement);
-          });
-        } else {
-          this.updateLinesToPlotBorders();
-          this.updateArc();
-          this.updateHighlightedAreas();
-          Plotly.redraw(plotElement);
-        }
+      plotElement.on('plotly_relayout', () => {
+        this.updateLinesToPlotBorders();
+        this.updateArc();
+        this.updateHighlightedAreas();
+        Plotly.redraw(plotElement);
       });
 
       plotElement.on('plotly_click', (eventData: any) => {
         const curveNumber = eventData.points[0].curveNumber;
         if (curveNumber === 1 || curveNumber === 2) {
           const pointIndex = eventData.points[0].pointIndex;
-          const lineIndex = curveNumber === 1 ? pointIndex : Math.floor(pointIndex / 20);
-          this.startDragging(lineIndex);
+          const lineIndex =
+            curveNumber === 1 ? pointIndex : Math.floor(pointIndex / 20);
+          if (lineIndex < 4) {
+            this.startDragging(lineIndex);
+          }
         } else if (curveNumber === 3) {
           this.startDraggingArc();
         }
@@ -231,6 +218,8 @@ export class ScatterPlotComponent implements OnInit {
     const fullLayout = this.plotContainer.nativeElement._fullLayout;
     this.xaxis = fullLayout.xaxis;
     this.yaxis = fullLayout.yaxis;
+
+    this.showTooltip = true;
 
     document.addEventListener('mousemove', this.onMouseMove);
     document.addEventListener('mouseup', this.onMouseUp);
@@ -246,24 +235,58 @@ export class ScatterPlotComponent implements OnInit {
     const xData = this.xaxis.p2l(xPos);
     const yData = this.yaxis.p2l(yPos);
 
-    const x = Math.max(0.0001, xData);
-    const y = Math.max(0.0001, yData);
+    const xMouse = Math.max(0.0001, xData);
+    const yMouse = Math.max(0.0001, yData);
+
+    let angleRad = Math.atan2(yMouse, xMouse);
+    let angleDeg = (angleRad * 180) / Math.PI;
+    if (angleDeg < 0) angleDeg += 360;
+
+    if (
+      this.draggingPointIndex > 0 &&
+      angleDeg <= this.lineAngles[this.draggingPointIndex - 1] + 0.1
+    ) {
+      angleDeg = this.lineAngles[this.draggingPointIndex - 1] + 0.1;
+      angleRad = (angleDeg * Math.PI) / 180;
+    } else if (
+      this.draggingPointIndex < 3 &&
+      angleDeg >= this.lineAngles[this.draggingPointIndex + 1] - 0.1
+    ) {
+      angleDeg = this.lineAngles[this.draggingPointIndex + 1] - 0.1;
+      angleRad = (angleDeg * Math.PI) / 180;
+    }
+
+    const r = Math.sqrt(xMouse * xMouse + yMouse * yMouse);
+
+    const x = r * Math.cos(angleRad);
+    const y = r * Math.sin(angleRad);
 
     this.draggingPoints[this.draggingPointIndex] = { x, y };
 
     this.updateLinesToPlotBorders();
     this.updateHighlightedAreas();
+    this.updateAnglesFromLines();
+
+    this.zone.run(() => {
+      this.tooltipXInPlot = xPos + 10;
+      this.tooltipYInPlot = yPos + 10;
+      this.tooltipAngleValue = angleDeg.toFixed(2);
+    });
 
     Plotly.redraw(this.plotContainer.nativeElement);
   }, 16);
 
   onMouseUp = () => {
     this.draggingPointIndex = null;
+    this.zone.run(() => {
+      this.showTooltip = false;
+    });
     document.removeEventListener('mousemove', this.onMouseMove);
     document.removeEventListener('mouseup', this.onMouseUp);
   };
 
   startDraggingArc() {
+    this.showTooltip = true;
     document.addEventListener('mousemove', this.onArcMouseMove);
     document.addEventListener('mouseup', this.onArcMouseUp);
   }
@@ -282,13 +305,24 @@ export class ScatterPlotComponent implements OnInit {
     this.draggingPoints[4] = { x: 0, y: this.yArc };
     this.draggingPoints[5] = { x: this.xArc, y: 0 };
 
+    this.arcCoordinate = (this.xArc + this.yArc) / 2;
+
     this.updateArc();
     this.updateLinesToPlotBorders();
+
+    this.zone.run(() => {
+      this.tooltipXInPlot = xPos + 10;
+      this.tooltipYInPlot = yPos + 10;
+      this.tooltipAngleValue = `Arc: ${this.arcCoordinate.toFixed(2)}`;
+    });
 
     Plotly.redraw(this.plotContainer.nativeElement);
   }, 16);
 
   onArcMouseUp = () => {
+    this.zone.run(() => {
+      this.showTooltip = false;
+    });
     document.removeEventListener('mousemove', this.onArcMouseMove);
     document.removeEventListener('mouseup', this.onArcMouseUp);
   };
@@ -425,5 +459,56 @@ export class ScatterPlotComponent implements OnInit {
 
     let path2 = `M 0,0 L ${line2End.x},${line2End.y} L ${line3End.x},${line3End.y} Z`;
     areaShape2.path = path2;
+  }
+
+  private updateAnglesFromLines() {
+    for (let i = 0; i < 4; i++) {
+      const point = this.draggingPoints[i];
+      const angleRad = Math.atan2(point.y, point.x);
+      let angleDeg = (angleRad * 180) / Math.PI;
+      if (angleDeg < 0) angleDeg += 360;
+      this.lineAngles[i] = angleDeg;
+    }
+    this.arcCoordinate = (this.xArc + this.yArc) / 2;
+  }
+
+  onAngleChange(index: number) {
+    let angleDeg = this.lineAngles[index];
+
+    // Prevent lines from crossing
+    if (index > 0 && angleDeg <= this.lineAngles[index - 1] + 0.1) {
+      angleDeg = this.lineAngles[index - 1] + 0.1;
+      this.lineAngles[index] = angleDeg;
+    }
+    if (index < 3 && angleDeg >= this.lineAngles[index + 1] - 0.1) {
+      angleDeg = this.lineAngles[index + 1] - 0.1;
+      this.lineAngles[index] = angleDeg;
+    }
+
+    const angleRad = (angleDeg * Math.PI) / 180;
+
+    const r = 1;
+
+    const x = r * Math.cos(angleRad);
+    const y = r * Math.sin(angleRad);
+
+    this.draggingPoints[index] = { x, y };
+
+    this.updateLinesToPlotBorders();
+    this.updateHighlightedAreas();
+    Plotly.redraw(this.plotContainer.nativeElement);
+  }
+
+  onArcCoordinateChange() {
+    this.xArc = this.arcCoordinate;
+    this.yArc = this.arcCoordinate;
+
+    this.draggingPoints[4] = { x: 0, y: this.yArc };
+    this.draggingPoints[5] = { x: this.xArc, y: 0 };
+
+    this.updateArc();
+    this.updateLinesToPlotBorders();
+
+    Plotly.redraw(this.plotContainer.nativeElement);
   }
 }

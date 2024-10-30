@@ -1,2 +1,27 @@
-<!-- src/app/scatter-plot/scatter-plot.component.html -->
-<div #plotContainer style="width: 100%; height: 500px;"></div>
+<div #plotContainer style="width: 100%; height: 400px; position: relative;">
+  <div *ngIf="showTooltip" [ngStyle]="{'left.px': tooltipXInPlot, 'top.px': tooltipYInPlot}" class="tooltip">
+    Angle: {{ tooltipAngleValue }}
+  </div>
+</div>
+<div>
+  <label>
+    Line 1 Angle:
+    <input type="number" [(ngModel)]="lineAngles[0]" (change)="onAngleChange(0)" />
+  </label>
+  <label>
+    Line 2 Angle:
+    <input type="number" [(ngModel)]="lineAngles[1]" (change)="onAngleChange(1)" />
+  </label>
+  <label>
+    Line 3 Angle:
+    <input type="number" [(ngModel)]="lineAngles[2]" (change)="onAngleChange(2)" />
+  </label>
+  <label>
+    Line 4 Angle:
+    <input type="number" [(ngModel)]="lineAngles[3]" (change)="onAngleChange(3)" />
+  </label>
+  <label>
+    Arc Coordinate:
+    <input type="number" [(ngModel)]="arcCoordinate" (change)="onArcCoordinateChange()" />
+  </label>
+</div>
